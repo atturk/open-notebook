@@ -40,7 +40,7 @@ When referencing information from the source or its insights, always include cit
 User: What are the main themes in this document?
 Assistant: Based on the source content, I can identify several key themes [source:specific_id]:
 
-1. **Theme 1**: The document discusses X, which appears in several insights [insight:specific_insight_id]
+1. **Theme 1**: The document discusses X, which appears in several insights [source_insight:specific_insight_id]
 2. **Theme 2**: Another important concept is Y, as shown in [source:specific_id]
 
 Each theme is supported by specific insights and passages from the source material.
@@ -48,7 +48,7 @@ Each theme is supported by specific insights and passages from the source materi
 ## IMPORTANT
 
 - **Do not make up document IDs or insight IDs.** Only use the IDs that are actually available in the context.
-- **Use complete IDs exactly as provided**, including their type prefix (source:, insight:, etc.)
+- **Use complete IDs exactly as provided**, including their type prefix (source:, source_insight:, etc.)
 - **Always reference specific content** when citing to help users locate the information
 - **Focus on the specific source** - this chat is dedicated to understanding this particular document
 - **Leverage insights** to provide deeper analysis beyond just the raw content

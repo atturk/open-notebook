@@ -1,8 +1,8 @@
 services:
   surrealdb:
     image: surrealdb/surrealdb:v2
-    command: start --log info --user root --pass root rocksdb:/mydata/mydatabase.db
-    user: root  # Required for bind mounts on Linux
+    command: start --log info --user root --pass password rocksdb:/mydata/mydatabase.db
+    user: root
     ports:
       - "8000:8000"
     volumes:
@@ -10,27 +10,35 @@ services:
     environment:
       - SURREAL_EXPERIMENTAL_GRAPHQL=true
     restart: always
-    pull_policy: always
 
   open_notebook:
-    image: lfnovo/open_notebook:v1-latest
+    build: .
     ports:
-      - "8502:8502"  # Web UI
-      - "5055:5055"  # REST API
+      - "8502:8502"
+      - "5055:5055"
     environment:
-      # REQUIRED: Change this to your own secret string
-      # This encrypts your API keys in the database
-      - OPEN_NOTEBOOK_ENCRYPTION_KEY=change-me-to-a-secret-string
-
-      # Database connection (default values - no need to change)
+      - OPEN_NOTEBOOK_ENCRYPTION_KEY=secretkey123
       - SURREAL_URL=ws://surrealdb:8000/rpc
       - SURREAL_USER=root
-      - SURREAL_PASSWORD=root
+      - SURREAL_PASSWORD=password
       - SURREAL_NAMESPACE=open_notebook
       - SURREAL_DATABASE=open_notebook
+      - PATH=/app/.venv/bin:/usr/local/bin:/usr/bin:/bin
+      - VIRTUAL_ENV=/app/.venv
     volumes:
+      # Mappiamo solo le cartelle del codice sorgente e dei prompt
+      - ./open_notebook:/app/open_notebook
+      - ./prompts:/app/prompts
+      - ./api:/app/api
+      - ./commands:/app/commands
+      - ./scripts:/app/scripts
+      - ./supervisord.conf:/etc/supervisor/conf.d/supervisord.conf
+      
+      # Dati persistenti
       - ./notebook_data:/app/data
+      
+      # NON mappiamo l'intera cartella /app né la cartella frontend
+      # così Docker userà la versione "pronta all'uso" creata nella build
     depends_on:
       - surrealdb
     restart: always
-    pull_policy: always
