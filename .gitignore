@@ -141,4 +141,11 @@ specs/
 **/*.local.md
 .harness/
 
-.mcp.json
+.mcp.jsonbackups/*
+!backups/.gitkeep
+!backup.sh
+!restore.sh
+!README BACKUPS.md
+README PASSWORD.md
+examples/README.sdr/
+.env

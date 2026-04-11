@@ -1,36 +1,94 @@
 services:
   surrealdb:
     image: surrealdb/surrealdb:v2
-    command: start --log info --user root --pass root rocksdb:/mydata/mydatabase.db
-    user: root  # Required for bind mounts on Linux
+    container_name: open-notebook-surrealdb
+    command: start --log info --user root --pass password rocksdb:/mydata/mydatabase.db
+    user: root
     ports:
       - "8000:8000"
     volumes:
+      # Bind mount for persistent data - backed up locally
       - ./surreal_data:/mydata
     environment:
       - SURREAL_EXPERIMENTAL_GRAPHQL=true
+      - SURREAL_ROCKSDB_CACHE_SIZE=256MB
+    # Resource limits - prevents OOM kills
+    mem_limit: 4g
+    memswap_limit: 4g
+    cpus: '2'
+    # Auto-restart on failure
     restart: always
-    pull_policy: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   open_notebook:
-    image: lfnovo/open_notebook:v1-latest
+    build: .
+    container_name: open-notebook-app
     ports:
-      - "8502:8502"  # Web UI
-      - "5055:5055"  # REST API
+      - "8502:8502"  # Frontend
+      - "5055:5055"  # API
     environment:
-      # REQUIRED: Change this to your own secret string
-      # This encrypts your API keys in the database
-      - OPEN_NOTEBOOK_ENCRYPTION_KEY=change-me-to-a-secret-string
-
-      # Database connection (default values - no need to change)
+      - OPEN_NOTEBOOK_ENCRYPTION_KEY=${OPEN_NOTEBOOK_ENCRYPTION_KEY}
       - SURREAL_URL=ws://surrealdb:8000/rpc
       - SURREAL_USER=root
-      - SURREAL_PASSWORD=root
+      - SURREAL_PASSWORD=password
       - SURREAL_NAMESPACE=open_notebook
       - SURREAL_DATABASE=open_notebook
+      - SKIP_PODCAST_SPEAKER_MIGRATION=true
+      - PATH=/app/.venv/bin:/usr/local/bin:/usr/bin:/bin
+      - VIRTUAL_ENV=/app/.venv
     volumes:
+      # Application code bind mounts
+      - ./open_notebook:/app/open_notebook
+      - ./prompts:/app/prompts
+      - ./api:/app/api
+      - ./commands:/app/commands
+      - ./scripts:/app/scripts
+      - ./supervisord.conf:/etc/supervisor/conf.d/supervisord.conf
+      # Persistent application data
       - ./notebook_data:/app/data
     depends_on:
       - surrealdb
-    restart: always
-    pull_policy: always
+    # Restart policy with exponential backoff
+    restart: on-failure:5
+    # Resource limits - prevents OOM kills
+    mem_limit: 6g
+    memswap_limit: 6g
+    cpus: '2.5'
+    # Extended startup delay for migrations
+    entrypoint: ["/bin/sh", "-c", "sleep 15 && exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  backup:
+    image: alpine:latest
+    container_name: open-notebook-backup
+    volumes:
+      # Mount the project directory to access data
+      - ./surreal_data:/data/surreal:ro
+      - ./notebook_data:/data/notebook:ro
+      - ./backups:/backups
+      - ./backup.sh:/scripts/backup.sh:ro
+    entrypoint: /bin/sh -c "apk add --no-cache bash tar && /scripts/backup.sh full"
+    depends_on:
+      - surrealdb
+      - open_notebook
+    restart: "no"
+    profiles: ["backup"]  # Run manually with: docker compose --profile backup up backup
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+volumes: {}
+
+networks:
+  default:
+    name: open-notebook-network

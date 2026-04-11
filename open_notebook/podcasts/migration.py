@@ -6,6 +6,7 @@ Runs on API startup after SQL migrations. Idempotent - skips profiles
 that already have the new fields populated.
 """
 
+import os
 from loguru import logger
 
 from open_notebook.database.repository import repo_query
@@ -138,49 +139,54 @@ async def migrate_podcast_profiles() -> None:
     sp_skipped = 0
     sp_failed = 0
 
-    speaker_profiles = await repo_query("SELECT * FROM speaker_profile")
-    for raw in speaker_profiles:
-        profile_name = raw.get("name", raw.get("id", "unknown"))
-        try:
-            voice_model = raw.get("voice_model")
+    # Skip speaker profile migration if disabled via environment variable
+    skip_speaker_migration = os.getenv("SKIP_PODCAST_SPEAKER_MIGRATION", "false").lower() == "true"
+    if skip_speaker_migration:
+        logger.info("Speaker profile migration skipped (SKIP_PODCAST_SPEAKER_MIGRATION=true)")
+    else:
+        speaker_profiles = await repo_query("SELECT * FROM speaker_profile")
+        for raw in speaker_profiles:
+            profile_name = raw.get("name", raw.get("id", "unknown"))
+            try:
+                voice_model = raw.get("voice_model")
 
-            if voice_model:
-                sp_skipped += 1
-                continue
+                if voice_model:
+                    sp_skipped += 1
+                    continue
 
-            tts_provider = raw.get("tts_provider")
-            tts_model = raw.get("tts_model")
+                tts_provider = raw.get("tts_provider")
+                tts_model = raw.get("tts_model")
 
-            if not tts_provider or not tts_model:
+                if not tts_provider or not tts_model:
+                    sp_failed += 1
+                    logger.warning(
+                        f"Speaker profile '{profile_name}' has no legacy TTS config"
+                    )
+                    continue
+
+                model_id = await _find_or_create_model(
+                    tts_provider, tts_model, "text_to_speech"
+                )
+                if model_id:
+                    from open_notebook.database.repository import ensure_record_id, repo_update
+
+                    await repo_update(
+                        "speaker_profile",
+                        str(raw["id"]),
+                        {"voice_model": ensure_record_id(model_id)},
+                    )
+                    sp_migrated += 1
+                    logger.info(f"Migrated speaker profile '{profile_name}'")
+                else:
+                    sp_failed += 1
+                    logger.warning(
+                        f"Could not migrate speaker profile '{profile_name}': "
+                        "no matching model found"
+                    )
+
+            except Exception as e:
                 sp_failed += 1
-                logger.warning(
-                    f"Speaker profile '{profile_name}' has no legacy TTS config"
-                )
-                continue
-
-            model_id = await _find_or_create_model(
-                tts_provider, tts_model, "text_to_speech"
-            )
-            if model_id:
-                from open_notebook.database.repository import ensure_record_id, repo_update
-
-                await repo_update(
-                    "speaker_profile",
-                    str(raw["id"]),
-                    {"voice_model": ensure_record_id(model_id)},
-                )
-                sp_migrated += 1
-                logger.info(f"Migrated speaker profile '{profile_name}'")
-            else:
-                sp_failed += 1
-                logger.warning(
-                    f"Could not migrate speaker profile '{profile_name}': "
-                    "no matching model found"
-                )
-
-        except Exception as e:
-            sp_failed += 1
-            logger.error(f"Failed to migrate speaker profile '{profile_name}': {e}")
+                logger.error(f"Failed to migrate speaker profile '{profile_name}': {e}")
 
     logger.info(
         f"Podcast profile migration complete. "
